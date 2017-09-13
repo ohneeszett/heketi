@@ -46,6 +46,7 @@ var (
 	HeketiStorageJobContainer = "heketi/heketi:dev"
 	heketiStorageListFilename string
 	heketiNumReplicas int
+	heketiDurabilityType string
 )
 
 func init() {
@@ -58,6 +59,10 @@ func init() {
 	  "replicas",
 	  3,
 	  "Number of replicas (must be an odd number greater than 2 for disaster recovery)")
+	setupHeketiStorageCommand.Flags().IntVar(&heketiDurabilityType,
+	  "durability",
+	  "replicate",
+	  "Durability type ('replicate' for two or mode replicas, 'none' for one replica)")
 }
 
 func saveJson(i interface{}, filename string) error {
@@ -116,7 +121,7 @@ func createHeketiStorageVolume(c *client.Client) (*api.VolumeInfoResponse, error
 	// Create request
 	req := &api.VolumeCreateRequest{}
 	req.Size = HeketiStorageVolumeSize
-	req.Durability.Type = api.DurabilityReplicate
+	req.Durability.Type = heketiDurabilityType
 	req.Durability.Replicate.Replica = heketiNumReplicas
 	req.Name = db.HeketiStorageVolumeName
 

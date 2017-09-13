@@ -59,7 +59,7 @@ func init() {
 	  "replicas",
 	  3,
 	  "Number of replicas (must be an odd number greater than 2 for disaster recovery)")
-	setupHeketiStorageCommand.Flags().IntVar(&heketiDurabilityType,
+	setupHeketiStorageCommand.Flags().StringVar(&heketiDurabilityType,
 	  "durability",
 	  "replicate",
 	  "Durability type ('replicate' for two or mode replicas, 'none' for one replica)")

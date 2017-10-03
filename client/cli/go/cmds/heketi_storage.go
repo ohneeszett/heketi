@@ -38,6 +38,12 @@ const (
 
 	HeketiStorageVolumeSize    = 2
 	HeketiStorageVolumeSizeStr = "2Gi"
+
+	durabilityChoices = map[string]api.DurabilityType {
+		"replicate": api.DurabilityReplicate,
+		"none": api.DurabilityDistributeOnly,
+		"disperse": api.DurabilityEC,
+	};
 )
 
 var (
@@ -121,7 +127,7 @@ func createHeketiStorageVolume(c *client.Client) (*api.VolumeInfoResponse, error
 	// Create request
 	req := &api.VolumeCreateRequest{}
 	req.Size = HeketiStorageVolumeSize
-	req.Durability.Type = heketiDurabilityType
+	req.Durability.Type = durabilityChoices[heketiDurabilityType]
 	req.Durability.Replicate.Replica = heketiNumReplicas
 	req.Name = db.HeketiStorageVolumeName
 

@@ -39,11 +39,6 @@ const (
 	HeketiStorageVolumeSize    = 2
 	HeketiStorageVolumeSizeStr = "2Gi"
 
-	durabilityChoices = map[string]api.DurabilityType {
-		"replicate": api.DurabilityReplicate,
-		"none": api.DurabilityDistributeOnly,
-		"disperse": api.DurabilityEC,
-	};
 )
 
 var (
@@ -53,6 +48,12 @@ var (
 	heketiStorageListFilename string
 	heketiNumReplicas int
 	heketiDurabilityType string
+
+	durabilityChoices = map[string]api.DurabilityType {
+		"replicate": api.DurabilityReplicate,
+		"none": api.DurabilityDistributeOnly,
+		"disperse": api.DurabilityEC,
+	}
 )
 
 func init() {

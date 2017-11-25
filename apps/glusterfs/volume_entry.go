@@ -38,10 +38,10 @@ const (
 )
 
 type VolumeEntry struct {
-	Info         api.VolumeInfo
-	Bricks       sort.StringSlice
-	Durability   VolumeDurability
-	gidRequested int64
+	Info                 api.VolumeInfo
+	Bricks               sort.StringSlice
+	Durability           VolumeDurability
+	GlusterVolumeOptions []string
 }
 
 func VolumeList(tx *bolt.Tx) ([]string, error) {
@@ -68,11 +68,18 @@ func NewVolumeEntryFromRequest(req *api.VolumeCreateRequest) *VolumeEntry {
 	godbc.Require(req != nil)
 
 	vol := NewVolumeEntry()
-	vol.gidRequested = req.Gid
+	vol.Info.Gid = req.Gid
 	vol.Info.Id = utils.GenUUID()
 	vol.Info.Durability = req.Durability
 	vol.Info.Snapshot = req.Snapshot
 	vol.Info.Size = req.Size
+	vol.Info.Block = req.Block
+
+	if vol.Info.Block {
+		vol.Info.BlockInfo.FreeSize = req.Size
+		vol.GlusterVolumeOptions = []string{"group gluster-block"}
+
+	}
 
 	// Set default durability values
 	durability := vol.Info.Durability.Type
@@ -115,6 +122,9 @@ func NewVolumeEntryFromRequest(req *api.VolumeCreateRequest) *VolumeEntry {
 	} else if !vol.Info.Snapshot.Enable {
 		vol.Info.Snapshot.Factor = 1
 	}
+
+	// If it is zero, then no volume options are set.
+	vol.GlusterVolumeOptions = req.GlusterVolumeOptions
 
 	// If it is zero, then it will be assigned during volume creation
 	vol.Info.Clusters = req.Clusters
@@ -160,6 +170,9 @@ func (v *VolumeEntry) NewInfoResponse(tx *bolt.Tx) (*api.VolumeInfoResponse, err
 	info.Size = v.Info.Size
 	info.Durability = v.Info.Durability
 	info.Name = v.Info.Name
+	info.GlusterVolumeOptions = v.GlusterVolumeOptions
+	info.Block = v.Info.Block
+	info.BlockInfo = v.Info.BlockInfo
 
 	for _, brickid := range v.BricksIds() {
 		brick, err := NewBrickEntryFromId(tx, brickid)
@@ -233,7 +246,6 @@ func (v *VolumeEntry) Create(db *bolt.DB,
 			var err error
 			possibleClusters, err = ClusterList(tx)
 			return err
-
 		})
 		if err != nil {
 			return err
@@ -241,6 +253,37 @@ func (v *VolumeEntry) Create(db *bolt.DB,
 	} else {
 		possibleClusters = v.Info.Clusters
 	}
+
+	//
+	// If the request carries the Block flag, consider only
+	// those clusters that carry the Block flag if there are
+	// any, otherwise consider all clusters.
+	// If the request does *not* carry the Block flag, consider
+	// only those clusters that do not carry the Block flag.
+	//
+	var candidateClusters []string
+	for _, clusterId := range possibleClusters {
+		err := db.View(func(tx *bolt.Tx) error {
+			c, err := NewClusterEntryFromId(tx, clusterId)
+			if err != nil {
+				return err
+			}
+			if v.Info.Block {
+				if c.Info.Block {
+					candidateClusters = append(candidateClusters, clusterId)
+				}
+			} else {
+				if c.Info.File {
+					candidateClusters = append(candidateClusters, clusterId)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	possibleClusters = candidateClusters
 
 	// Check we have clusters
 	if len(possibleClusters) == 0 {
@@ -367,6 +410,9 @@ func (v *VolumeEntry) Create(db *bolt.DB,
 		}
 
 		// Save volume information
+		if v.Info.Block {
+			v.Info.BlockInfo.FreeSize = v.Info.Size
+		}
 		err = v.Save(tx)
 		if err != nil {
 			return err
@@ -511,7 +557,6 @@ func (v *VolumeEntry) Expand(db *bolt.DB,
 	// Create bricks
 	err = CreateBricks(db, executor, brick_entries)
 	if err != nil {
-		logger.Err(err)
 		return err
 	}
 
@@ -585,4 +630,17 @@ func (v *VolumeEntry) checkBricksCanBeDestroyed(db *bolt.DB,
 		logger.Err(err)
 	}
 	return err
+}
+
+func VolumeEntryUpgrade(tx *bolt.Tx) error {
+	return nil
+}
+
+func (v *VolumeEntry) BlockVolumeAdd(id string) {
+	v.Info.BlockInfo.BlockVolumes = append(v.Info.BlockInfo.BlockVolumes, id)
+	v.Info.BlockInfo.BlockVolumes.Sort()
+}
+
+func (v *VolumeEntry) BlockVolumeDelete(id string) {
+	v.Info.BlockInfo.BlockVolumes = utils.SortedStringsDelete(v.Info.BlockInfo.BlockVolumes, id)
 }

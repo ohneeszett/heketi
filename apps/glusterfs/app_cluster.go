@@ -16,23 +16,37 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/gorilla/mux"
 	"github.com/heketi/heketi/pkg/glusterfs/api"
+	"github.com/heketi/heketi/pkg/utils"
 )
 
 func (a *App) ClusterCreate(w http.ResponseWriter, r *http.Request) {
+	var msg api.ClusterCreateRequest
+
+	err := utils.GetJsonFromRequest(r, &msg)
+	if err != nil {
+		http.Error(w, "request unable to be parsed", 422)
+		return
+	}
 
 	// Create a new ClusterInfo
-	entry := NewClusterEntryFromRequest()
+	entry := NewClusterEntryFromRequest(&msg)
 
 	// Add cluster to db
-	err := a.db.Update(func(tx *bolt.Tx) error {
+	err = a.db.Update(func(tx *bolt.Tx) error {
 		err := entry.Save(tx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return err
 		}
 
-		return nil
+		err = a.allocator.AddCluster(entry.Info.Id)
+		if err != nil {
+			logger.LogError("Error adding cluster to ring: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return err
+		}
 
+		return nil
 	})
 	if err != nil {
 		return

@@ -24,10 +24,15 @@ class test_heketi(unittest.TestCase):
     def test_cluster(self):
         c = HeketiClient(TEST_SERVER, "admin", TEST_ADMIN_KEY)
 
-        cluster = c.cluster_create()
+        cluster_req = {}
+        cluster_req['block'] = True
+        cluster_req['file'] = True
+        cluster = c.cluster_create(cluster_req)
         self.assertEqual(True, cluster['id'] != "")
         self.assertEqual(True, len(cluster['nodes']) == 0)
         self.assertEqual(True, len(cluster['volumes']) == 0)
+        self.assertEqual(True, cluster['block'])
+        self.assertEqual(True, cluster['file'])
 
         # Request bad id
         with self.assertRaises(requests.exceptions.HTTPError):
@@ -56,7 +61,10 @@ class test_heketi(unittest.TestCase):
         self.assertEqual(True, c != '')
 
         # Create cluster
-        cluster = c.cluster_create()
+        cluster_req = {}
+        cluster_req['block'] = True
+        cluster_req['file'] = True
+        cluster = c.cluster_create(cluster_req)
         self.assertEqual(True, cluster['id'] != "")
         self.assertEqual(True, len(cluster['nodes']) == 0)
         self.assertEqual(True, len(cluster['volumes']) == 0)
@@ -125,7 +133,10 @@ class test_heketi(unittest.TestCase):
         c = HeketiClient(TEST_SERVER, "admin", TEST_ADMIN_KEY)
 
         # Create cluster
-        cluster = c.cluster_create()
+        cluster_req = {}
+        cluster_req['block'] = True
+        cluster_req['file'] = True
+        cluster = c.cluster_create(cluster_req)
         self.assertEqual(True, cluster['id'] != '')
 
         # Create node
@@ -180,6 +191,10 @@ class test_heketi(unittest.TestCase):
         info = c.device_info(device_id)
         self.assertEqual(info['state'], 'online')
 
+        # Resync device
+        device_resync = c.device_resync(device_id)
+        self.assertEqual(True, device_resync)
+
         # Try to delete node, and will not until we delete the device
         with self.assertRaises(requests.exceptions.HTTPError):
             c.node_delete(node['id'])
@@ -205,7 +220,10 @@ class test_heketi(unittest.TestCase):
         c = HeketiClient(TEST_SERVER, "admin", TEST_ADMIN_KEY)
         self.assertEqual(True, c != '')
 
-        cluster = c.cluster_create()
+        cluster_req = {}
+        cluster_req['block'] = True
+        cluster_req['file'] = True
+        cluster = c.cluster_create(cluster_req)
         self.assertEqual(True, cluster['id'] != '')
 
         # Create node request packet

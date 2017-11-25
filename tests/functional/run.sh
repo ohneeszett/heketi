@@ -1,10 +1,28 @@
 #!/bin/sh
 
+TESTS="TestSmokeTest"
+TESTS="TestVolumeNotDeletedWhenNodeIsDown $TESTS"
+TESTS="TestVolumeSnapshotBehavior $TESTS"
+TESTS="TestManyBricksVolume $TESTS"
+
+# install glide
+if ! command -v glide ; then
+	echo glide is not installed, please install it to continue
+	echo 'get it from your package manager, or unsafely via: "curl https://glide.sh/get | sh"'
+	exit 1
+fi
+
+# Download golang 1.8.3
+curl -O https://storage.googleapis.com/golang/go1.8.3.linux-amd64.tar.gz
+tar xzvf go1.8.3.linux-amd64.tar.gz
+export GOROOT=$(pwd)/go
+export PATH=$GOROOT/bin:$PATH
+
 source ./lib.sh
 
 teardown_all() {
     results=0
-    for testDir in * ; do
+    for testDir in $TESTS ; do
         if [ -x $testDir/teardown.sh ] ; then
             println "TEARDOWN $testDir"
             cd $testDir
@@ -33,7 +51,7 @@ teardown_all
 
 # Check each dir for tests
 results=0
-for testDir in * ; do
+for testDir in $TESTS ; do
     if [ -x $testDir/run.sh ] ; then
         println "TEST $testDir"
         cd $testDir

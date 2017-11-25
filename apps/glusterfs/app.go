@@ -12,6 +12,7 @@ package glusterfs
 import (
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -26,12 +27,15 @@ import (
 )
 
 const (
-	ASYNC_ROUTE           = "/queue"
-	BOLTDB_BUCKET_CLUSTER = "CLUSTER"
-	BOLTDB_BUCKET_NODE    = "NODE"
-	BOLTDB_BUCKET_VOLUME  = "VOLUME"
-	BOLTDB_BUCKET_DEVICE  = "DEVICE"
-	BOLTDB_BUCKET_BRICK   = "BRICK"
+	ASYNC_ROUTE                    = "/queue"
+	BOLTDB_BUCKET_CLUSTER          = "CLUSTER"
+	BOLTDB_BUCKET_NODE             = "NODE"
+	BOLTDB_BUCKET_VOLUME           = "VOLUME"
+	BOLTDB_BUCKET_DEVICE           = "DEVICE"
+	BOLTDB_BUCKET_BRICK            = "BRICK"
+	BOLTDB_BUCKET_BLOCKVOLUME      = "BLOCKVOLUME"
+	BOLTDB_BUCKET_DBATTRIBUTE      = "DBATTRIBUTE"
+	DB_CLUSTER_HAS_FILE_BLOCK_FLAG = "DB_CLUSTER_HAS_FILE_BLOCK_FLAG"
 )
 
 var (
@@ -95,7 +99,7 @@ func NewApp(configIo io.Reader) *App {
 	// Setup BoltDB database
 	app.db, err = bolt.Open(dbfilename, 0600, &bolt.Options{Timeout: 3 * time.Second})
 	if err != nil {
-		logger.Warning("Unable to open database.  Retrying using read only mode")
+		logger.LogError("Unable to open database: %v. Retrying using read only mode", err)
 
 		// Try opening as read-only
 		app.db, err = bolt.Open(dbfilename, 0666, &bolt.Options{
@@ -143,6 +147,25 @@ func NewApp(configIo io.Reader) *App {
 				return err
 			}
 
+			_, err = tx.CreateBucketIfNotExists([]byte(BOLTDB_BUCKET_BLOCKVOLUME))
+			if err != nil {
+				logger.LogError("Unable to create blockvolume bucket in DB")
+				return err
+			}
+
+			_, err = tx.CreateBucketIfNotExists([]byte(BOLTDB_BUCKET_DBATTRIBUTE))
+			if err != nil {
+				logger.LogError("Unable to create dbattribute bucket in DB")
+				return err
+			}
+
+			// Handle Upgrade Changes
+			err = app.Upgrade(tx)
+			if err != nil {
+				logger.LogError("Unable to Upgrade Changes")
+				return err
+			}
+
 			return nil
 
 		})
@@ -152,8 +175,14 @@ func NewApp(configIo io.Reader) *App {
 		}
 	}
 
+	// Set values mentioned in environmental variable
+	app.setFromEnvironmentalVariable()
+
 	// Set advanced settings
 	app.setAdvSettings()
+
+	// Set block settings
+	app.setBlockSettings()
 
 	// Setup allocator
 	switch {
@@ -190,6 +219,61 @@ func (a *App) setLogLevel(level string) {
 	}
 }
 
+// Upgrade Path to update all the values for new API entries
+func (a *App) Upgrade(tx *bolt.Tx) error {
+
+	err := ClusterEntryUpgrade(tx)
+	if err != nil {
+		logger.LogError("Failed to upgrade db for cluster entries")
+		return err
+	}
+
+	err = NodeEntryUpgrade(tx)
+	if err != nil {
+		logger.LogError("Failed to upgrade db for node entries")
+		return err
+	}
+
+	err = VolumeEntryUpgrade(tx)
+	if err != nil {
+		logger.LogError("Failed to upgrade db for volume entries")
+		return err
+	}
+
+	err = DeviceEntryUpgrade(tx)
+	if err != nil {
+		logger.LogError("Failed to upgrade db for device entries")
+		return err
+	}
+
+	err = BrickEntryUpgrade(tx)
+	if err != nil {
+		logger.LogError("Failed to upgrade db for brick entries: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (a *App) setFromEnvironmentalVariable() {
+	var err error
+	env := os.Getenv("HEKETI_AUTO_CREATE_BLOCK_HOSTING_VOLUME")
+	if "" != env {
+		a.conf.CreateBlockHostingVolumes, err = strconv.ParseBool(env)
+		if err != nil {
+			logger.LogError("Error: Parse bool in Create Block Hosting Volumes: %v", err)
+		}
+	}
+
+	env = os.Getenv("HEKETI_BLOCK_HOSTING_VOLUME_SIZE")
+	if "" != env {
+		a.conf.BlockHostingVolumeSize, err = strconv.Atoi(env)
+		if err != nil {
+			logger.LogError("Error: Atoi in Block Hosting Volume Size: %v", err)
+		}
+	}
+}
+
 func (a *App) setAdvSettings() {
 	if a.conf.BrickMaxNum != 0 {
 		logger.Info("Adv: Max bricks per volume set to %v", a.conf.BrickMaxNum)
@@ -210,6 +294,21 @@ func (a *App) setAdvSettings() {
 		// From volume_entry.go
 		// Convert to KB
 		BrickMinSize = uint64(a.conf.BrickMinSize) * 1024 * 1024
+	}
+}
+
+func (a *App) setBlockSettings() {
+	if a.conf.CreateBlockHostingVolumes != false {
+		logger.Info("Block: Auto Create Block Hosting Volume set to %v", a.conf.CreateBlockHostingVolumes)
+
+		// switch to auto creation of block hosting volumes
+		CreateBlockHostingVolumes = a.conf.CreateBlockHostingVolumes
+	}
+	if a.conf.BlockHostingVolumeSize > 0 {
+		logger.Info("Block: New Block Hosting Volume size %v GB", a.conf.BlockHostingVolumeSize)
+
+		// Should be in GB as this is input for block hosting volume create
+		BlockHostingVolumeSize = a.conf.BlockHostingVolumeSize
 	}
 }
 
@@ -290,6 +389,11 @@ func (a *App) SetRoutes(router *mux.Router) error {
 			Method:      "POST",
 			Pattern:     "/devices/{id:[A-Fa-f0-9]+}/state",
 			HandlerFunc: a.DeviceSetState},
+		rest.Route{
+			Name:        "DeviceResync",
+			Method:      "GET",
+			Pattern:     "/devices/{id:[A-Fa-f0-9]+}/resync",
+			HandlerFunc: a.DeviceResync},
 
 		// Volume
 		rest.Route{
@@ -317,6 +421,28 @@ func (a *App) SetRoutes(router *mux.Router) error {
 			Method:      "GET",
 			Pattern:     "/volumes",
 			HandlerFunc: a.VolumeList},
+
+		// BlockVolumes
+		rest.Route{
+			Name:        "BlockVolumeCreate",
+			Method:      "POST",
+			Pattern:     "/blockvolumes",
+			HandlerFunc: a.BlockVolumeCreate},
+		rest.Route{
+			Name:        "BlockVolumeInfo",
+			Method:      "GET",
+			Pattern:     "/blockvolumes/{id:[A-Fa-f0-9]+}",
+			HandlerFunc: a.BlockVolumeInfo},
+		rest.Route{
+			Name:        "BlockVolumeDelete",
+			Method:      "DELETE",
+			Pattern:     "/blockvolumes/{id:[A-Fa-f0-9]+}",
+			HandlerFunc: a.BlockVolumeDelete},
+		rest.Route{
+			Name:        "BlockVolumeList",
+			Method:      "GET",
+			Pattern:     "/blockvolumes",
+			HandlerFunc: a.BlockVolumeList},
 
 		// Backup
 		rest.Route{

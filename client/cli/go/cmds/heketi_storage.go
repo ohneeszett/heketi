@@ -42,9 +42,7 @@ const (
 )
 
 var (
-
-	// Override this from command line
-	HeketiStorageJobContainer = "heketi/heketi:dev"
+	HeketiStorageJobContainer string
 	heketiStorageListFilename string
 	heketiNumReplicas int
 	heketiDurabilityType string
@@ -62,6 +60,10 @@ func init() {
 		"listfile",
 		"heketi-storage.json",
 		"Filename to contain list of objects")
+	setupHeketiStorageCommand.Flags().StringVar(&HeketiStorageJobContainer,
+		"image",
+		"heketi/heketi:dev",
+		"container image to run this job")
 	setupHeketiStorageCommand.Flags().IntVar(&heketiNumReplicas,
 	  "replicas",
 	  3,

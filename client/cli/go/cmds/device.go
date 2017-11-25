@@ -27,16 +27,20 @@ func init() {
 	RootCmd.AddCommand(deviceCommand)
 	deviceCommand.AddCommand(deviceAddCommand)
 	deviceCommand.AddCommand(deviceDeleteCommand)
+	deviceCommand.AddCommand(deviceRemoveCommand)
 	deviceCommand.AddCommand(deviceInfoCommand)
 	deviceCommand.AddCommand(deviceEnableCommand)
 	deviceCommand.AddCommand(deviceDisableCommand)
+	deviceCommand.AddCommand(deviceResyncCommand)
 	deviceAddCommand.Flags().StringVar(&device, "name", "",
 		"Name of device to add")
 	deviceAddCommand.Flags().StringVar(&nodeId, "node", "",
 		"Id of the node which has this device")
 	deviceAddCommand.SilenceUsage = true
 	deviceDeleteCommand.SilenceUsage = true
+	deviceRemoveCommand.SilenceUsage = true
 	deviceInfoCommand.SilenceUsage = true
+	deviceResyncCommand.SilenceUsage = true
 }
 
 var deviceCommand = &cobra.Command{
@@ -110,10 +114,42 @@ var deviceDeleteCommand = &cobra.Command{
 	},
 }
 
+var deviceRemoveCommand = &cobra.Command{
+	Use:     "remove [device_id]",
+	Short:   "Removes a device from Heketi node",
+	Long:    "Removes a device from Heketi node",
+	Example: "  $ heketi-cli device remove 886a86a868711bef83001",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		s := cmd.Flags().Args()
+
+		//ensure proper number of args
+		if len(s) < 1 {
+			return errors.New("Device id missing")
+		}
+
+		//set clusterId
+		deviceId := cmd.Flags().Arg(0)
+
+		// Create a client
+		heketi := client.NewClient(options.Url, options.User, options.Key)
+
+		//set url
+		req := &api.StateRequest{
+			State: "failed",
+		}
+		err := heketi.DeviceState(deviceId, req)
+		if err == nil {
+			fmt.Fprintf(stdout, "Device %v is now removed\n", deviceId)
+		}
+
+		return err
+	},
+}
+
 var deviceInfoCommand = &cobra.Command{
 	Use:     "info [device_id]",
-	Short:   "Retreives information about the device",
-	Long:    "Retreives information about the device",
+	Short:   "Retrieves information about the device",
+	Long:    "Retrieves information about the device",
 	Example: "  $ heketi-cli node info 886a86a868711bef83001",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		//ensure proper number of args
@@ -132,6 +168,11 @@ var deviceInfoCommand = &cobra.Command{
 		info, err := heketi.DeviceInfo(deviceId)
 		if err != nil {
 			return err
+		}
+
+		var entryStateRemoved api.EntryState = "removed"
+		if info.State == api.EntryStateFailed {
+			info.State = entryStateRemoved
 		}
 
 		if options.Json {
@@ -230,5 +271,33 @@ var deviceDisableCommand = &cobra.Command{
 		}
 
 		return err
+	},
+}
+
+var deviceResyncCommand = &cobra.Command{
+	Use:     "resync [device_id]",
+	Short:   "Resync storage information about the device with operation system",
+	Long:    "Resync storage information about the device with operation system",
+	Example: "  $ heketi-cli device resync 886a86a868711bef83001",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		//ensure proper number of args
+		s := cmd.Flags().Args()
+		if len(s) < 1 {
+			return errors.New("device id missing")
+		}
+
+		// Set node id
+		deviceId := cmd.Flags().Arg(0)
+
+		// Create a client
+		heketi := client.NewClient(options.Url, options.User, options.Key)
+
+		//set url
+		err := heketi.DeviceResync(deviceId)
+		if err == nil {
+			fmt.Fprintf(stdout, "Device %v updated\n", nodeId)
+		}
+
+		return nil
 	},
 }

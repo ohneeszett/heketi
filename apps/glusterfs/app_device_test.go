@@ -95,7 +95,11 @@ func TestDeviceAddDelete(t *testing.T) {
 
 	// Add Cluster then a Node on the cluster
 	// node
-	cluster := NewClusterEntryFromRequest()
+	cluster_req := &api.ClusterCreateRequest{
+		Block: true,
+		File:  true,
+	}
+	cluster := NewClusterEntryFromRequest(cluster_req)
 	nodereq := &api.NodeAddRequest{
 		ClusterId: cluster.Info.Id,
 		Hostnames: api.HostAddresses{
@@ -341,7 +345,11 @@ func TestDeviceAddCleansUp(t *testing.T) {
 
 	// Add Cluster then a Node on the cluster
 	// node
-	cluster := NewClusterEntryFromRequest()
+	cluster_req := &api.ClusterCreateRequest{
+		Block: true,
+		File:  true,
+	}
+	cluster := NewClusterEntryFromRequest(cluster_req)
 	nodereq := &api.NodeAddRequest{
 		ClusterId: cluster.Info.Id,
 		Hostnames: api.HostAddresses{
@@ -559,7 +567,11 @@ func TestDeviceState(t *testing.T) {
 	tests.Assert(t, c != nil)
 
 	// Create Cluster
-	cluster, err := c.ClusterCreate()
+	cluster_req := &api.ClusterCreateRequest{
+		Block: true,
+		File:  true,
+	}
+	cluster, err := c.ClusterCreate(cluster_req)
 	tests.Assert(t, err == nil)
 
 	// Create Node
@@ -605,8 +617,23 @@ func TestDeviceState(t *testing.T) {
 	r, err := http.Post(ts.URL+"/devices/"+device.Id+"/state",
 		"application/json", bytes.NewBuffer(request))
 	tests.Assert(t, err == nil)
-	tests.Assert(t, r.StatusCode == http.StatusOK)
+	tests.Assert(t, r.StatusCode == http.StatusAccepted)
 
+	location, err := r.Location()
+	tests.Assert(t, err == nil)
+
+	// Query queue until finished
+	for {
+		r, err = http.Get(location.String())
+		tests.Assert(t, err == nil)
+		if r.Header.Get("X-Pending") == "true" {
+			tests.Assert(t, r.StatusCode == http.StatusOK)
+			time.Sleep(time.Millisecond * 10)
+		} else {
+			tests.Assert(t, r.StatusCode == http.StatusNoContent)
+			break
+		}
+	}
 	// Check it was removed from the ring
 	tests.Assert(t, len(mockAllocator.clustermap[cluster.Id]) == 0)
 
@@ -632,7 +659,22 @@ func TestDeviceState(t *testing.T) {
 	r, err = http.Post(ts.URL+"/devices/"+device.Id+"/state",
 		"application/json", bytes.NewBuffer(request))
 	tests.Assert(t, err == nil)
-	tests.Assert(t, r.StatusCode == http.StatusOK)
+	tests.Assert(t, r.StatusCode == http.StatusAccepted)
+	location, err = r.Location()
+	tests.Assert(t, err == nil)
+
+	// Query queue until finished
+	for {
+		r, err = http.Get(location.String())
+		tests.Assert(t, err == nil)
+		if r.Header.Get("X-Pending") == "true" {
+			tests.Assert(t, r.StatusCode == http.StatusOK)
+			time.Sleep(time.Millisecond * 10)
+		} else {
+			tests.Assert(t, r.StatusCode == http.StatusNoContent)
+			break
+		}
+	}
 
 	// Check that the device is in the ring
 	tests.Assert(t, len(mockAllocator.clustermap[cluster.Id]) == 1)
@@ -655,11 +697,26 @@ func TestDeviceState(t *testing.T) {
 	// Set to unknown state
 	request = []byte(`{
 				"state" : "blah"
-				}`)
+			}`)
 	r, err = http.Post(ts.URL+"/devices/"+device.Id+"/state",
 		"application/json", bytes.NewBuffer(request))
 	tests.Assert(t, err == nil)
-	tests.Assert(t, r.StatusCode == http.StatusBadRequest)
+	tests.Assert(t, r.StatusCode == http.StatusAccepted)
+	location, err = r.Location()
+	tests.Assert(t, err == nil)
+
+	// Query queue until finished
+	for {
+		r, err = http.Get(location.String())
+		tests.Assert(t, err == nil)
+		if r.Header.Get("X-Pending") == "true" {
+			tests.Assert(t, r.StatusCode == http.StatusOK)
+			time.Sleep(time.Millisecond * 10)
+		} else {
+			tests.Assert(t, r.StatusCode == http.StatusInternalServerError)
+			break
+		}
+	}
 
 	// Check that the device is still in the ring
 	tests.Assert(t, len(mockAllocator.clustermap[cluster.Id]) == 1)
@@ -678,4 +735,115 @@ func TestDeviceState(t *testing.T) {
 	tests.Assert(t, info.Storage.Free == device.Storage.Free)
 	tests.Assert(t, info.Storage.Used == device.Storage.Used)
 	tests.Assert(t, info.Storage.Total == device.Storage.Total)
+}
+
+func TestDeviceSync(t *testing.T) {
+	tmpfile := tests.Tempfile()
+	defer os.Remove(tmpfile)
+
+	// Create the app
+	app := NewTestApp(tmpfile)
+	defer app.Close()
+	router := mux.NewRouter()
+	app.SetRoutes(router)
+
+	// Setup the server
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	var total, used, newFree uint64
+	total = 200 * 1024 * 1024
+	used = 100 * 1024 * 1024
+	newFree = 500 * 1024 * 1024 // see mockexec
+
+	nodeId := utils.GenUUID()
+	deviceId := utils.GenUUID()
+
+	// Init test database
+	err := app.db.Update(func(tx *bolt.Tx) error {
+		cluster := NewClusterEntry()
+		cluster.Info.Id = utils.GenUUID()
+		if err := cluster.Save(tx); err != nil {
+			return err
+		}
+
+		device := NewDeviceEntry()
+		device.Info.Id = deviceId
+		device.Info.Name = "/dev/abc"
+		device.NodeId = nodeId
+		device.StorageSet(total)
+		device.StorageAllocate(used)
+
+		if err := device.Save(tx); err != nil {
+			return err
+		}
+
+		node := NewNodeEntry()
+		node.Info.Id = nodeId
+		node.Info.ClusterId = cluster.Info.Id
+		node.Info.Hostnames.Manage = sort.StringSlice{"manage.system"}
+		node.Info.Hostnames.Storage = sort.StringSlice{"storage.system"}
+		node.Info.Zone = 10
+
+		node.DeviceAdd(device.Info.Id)
+
+		if err := node.Save(tx); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	tests.Assert(t, err == nil)
+
+	r, err := http.Get(ts.URL + "/devices/" + deviceId + "/resync")
+	tests.Assert(t, err == nil)
+	tests.Assert(t, r.StatusCode == http.StatusAccepted)
+
+	location, err := r.Location()
+	tests.Assert(t, err == nil)
+
+	for {
+		r, err := http.Get(location.String())
+		tests.Assert(t, err == nil)
+		if r.Header.Get("X-Pending") == "true" {
+			tests.Assert(t, r.StatusCode == http.StatusOK)
+			time.Sleep(time.Millisecond * 10)
+			continue
+		} else {
+			tests.Assert(t, r.StatusCode == http.StatusNoContent)
+			break
+		}
+	}
+
+	err = app.db.View(func(tx *bolt.Tx) error {
+		device, err := NewDeviceEntryFromId(tx, deviceId)
+		tests.Assert(t, err == nil)
+		tests.Assert(t, device.Info.Storage.Total == newFree+used)
+		tests.Assert(t, device.Info.Storage.Free == newFree)
+		tests.Assert(t, device.Info.Storage.Used == used)
+		return nil
+	})
+	tests.Assert(t, err == nil)
+}
+
+func TestDeviceSyncIdNotFound(t *testing.T) {
+	tmpfile := tests.Tempfile()
+	defer os.Remove(tmpfile)
+
+	// Create the app
+	app := NewTestApp(tmpfile)
+	defer app.Close()
+	router := mux.NewRouter()
+	app.SetRoutes(router)
+
+	// Setup the server
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	deviceId := utils.GenUUID()
+
+	// Get unknown node id
+	r, err := http.Get(ts.URL + "/devices/" + deviceId + "/resync")
+	tests.Assert(t, err == nil)
+	tests.Assert(t, r.StatusCode == http.StatusNotFound)
 }

@@ -12,9 +12,10 @@ package sshexec
 import (
 	"errors"
 	"fmt"
-	"github.com/heketi/heketi/executors"
 	"strconv"
 	"strings"
+
+	"github.com/heketi/heketi/executors"
 )
 
 const (
@@ -50,13 +51,16 @@ func (s *SshExecutor) DeviceSetup(host, device, vgid string) (d *executors.Devic
 		}
 	}()
 
+	return s.GetDeviceInfo(host, device, vgid)
+}
+
+func (s *SshExecutor) GetDeviceInfo(host, device, vgid string) (d *executors.DeviceInfo, e error) {
 	// Vg info
 	d = &executors.DeviceInfo{}
-	err = s.getVgSizeFromNode(d, host, device, vgid)
+	err := s.getVgSizeFromNode(d, host, device, vgid)
 	if err != nil {
 		return nil, err
 	}
-
 	return d, nil
 }
 
@@ -71,8 +75,26 @@ func (s *SshExecutor) DeviceTeardown(host, device, vgid string) error {
 	// Execute command
 	_, err := s.RemoteExecutor.RemoteCommandExecute(host, commands, 5)
 	if err != nil {
-		logger.LogError("Error while deleting device %v on %v with id %v",
-			device, host, vgid)
+		logger.LogError("Error while deleting device %v with id %v on host %v: %v",
+			device, vgid, host, err)
+	}
+
+	commands = []string{
+		fmt.Sprintf("ls %v/%v", rootMountPoint, s.vgName(vgid)),
+	}
+	_, err = s.RemoteExecutor.RemoteCommandExecute(host, commands, 5)
+	if err != nil {
+		return nil
+	}
+
+	commands = []string{
+		fmt.Sprintf("rmdir %v/%v", rootMountPoint, s.vgName(vgid)),
+	}
+
+	_, err = s.RemoteExecutor.RemoteCommandExecute(host, commands, 5)
+	if err != nil {
+		logger.LogError("Error while removing the VG directory")
+		return nil
 	}
 
 	return nil

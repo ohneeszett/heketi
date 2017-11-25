@@ -13,18 +13,19 @@ ENV HEKETI_BRANCH="feature/num-replicas-arg"
 
 # install dependencies, build and cleanup
 RUN mkdir $BUILD_HOME $GOPATH && \
-    dnf -q -y install golang git && \
+    dnf -q -y install glide golang git && \
     dnf -q -y install make && \
     dnf -q -y clean all && \
-    mkdir -p $GOPATH/src/github.com/heketi && \
-    cd $GOPATH/src/github.com/heketi && \
+    mkdir -p $GOPATH/src/github.com/ohneeszett && \
+    cd $GOPATH/src/github.com/ohneeszett && \
     git clone -b $HEKETI_BRANCH https://github.com/ohneeszett/heketi.git && \
-    go get github.com/tools/godep && \
-    cd $GOPATH/src/github.com/heketi/heketi && make && \
+    cd $GOPATH/src/github.com/ohneeszett/heketi && \
+    glide install -v && make && \
     cp heketi /usr/bin/heketi && \
     cp client/cli/go/heketi-cli /usr/bin/heketi-cli && \
+    glide cc && \
     cd && rm -rf $BUILD_HOME && \
-    dnf -q -y remove git golang make && \
+    dnf -q -y remove git glide golang make && \
     dnf -q -y autoremove && \
     dnf -q -y clean all
 

@@ -15,6 +15,7 @@ import (
 
 type MockExecutor struct {
 	// These functions can be overwritten for testing
+	MockGlusterdCheck      func(host string) error
 	MockPeerProbe          func(exec_host, newnode string) error
 	MockPeerDetach         func(exec_host, newnode string) error
 	MockDeviceSetup        func(host, device, vgid string) (*executors.DeviceInfo, error)
@@ -22,14 +23,23 @@ type MockExecutor struct {
 	MockBrickCreate        func(host string, brick *executors.BrickRequest) (*executors.BrickInfo, error)
 	MockBrickDestroy       func(host string, brick *executors.BrickRequest) error
 	MockBrickDestroyCheck  func(host string, brick *executors.BrickRequest) error
-	MockVolumeCreate       func(host string, volume *executors.VolumeRequest) (*executors.VolumeInfo, error)
-	MockVolumeExpand       func(host string, volume *executors.VolumeRequest) (*executors.VolumeInfo, error)
+	MockVolumeCreate       func(host string, volume *executors.VolumeRequest) (*executors.Volume, error)
+	MockVolumeExpand       func(host string, volume *executors.VolumeRequest) (*executors.Volume, error)
 	MockVolumeDestroy      func(host string, volume string) error
 	MockVolumeDestroyCheck func(host, volume string) error
+	MockVolumeReplaceBrick func(host string, volume string, oldBrick *executors.BrickInfo, newBrick *executors.BrickInfo) error
+	MockVolumeInfo         func(host string, volume string) (*executors.Volume, error)
+	MockHealInfo           func(host string, volume string) (*executors.HealInfo, error)
+	MockBlockVolumeCreate  func(host string, blockVolume *executors.BlockVolumeRequest) (*executors.BlockVolumeInfo, error)
+	MockBlockVolumeDestroy func(host string, blockHostingVolumeName string, blockVolumeName string) error
 }
 
 func NewMockExecutor() (*MockExecutor, error) {
 	m := &MockExecutor{}
+
+	m.MockGlusterdCheck = func(host string) error {
+		return nil
+	}
 
 	m.MockPeerProbe = func(exec_host, newnode string) error {
 		return nil
@@ -65,12 +75,12 @@ func NewMockExecutor() (*MockExecutor, error) {
 		return nil
 	}
 
-	m.MockVolumeCreate = func(host string, volume *executors.VolumeRequest) (*executors.VolumeInfo, error) {
-		return &executors.VolumeInfo{}, nil
+	m.MockVolumeCreate = func(host string, volume *executors.VolumeRequest) (*executors.Volume, error) {
+		return &executors.Volume{}, nil
 	}
 
-	m.MockVolumeExpand = func(host string, volume *executors.VolumeRequest) (*executors.VolumeInfo, error) {
-		return &executors.VolumeInfo{}, nil
+	m.MockVolumeExpand = func(host string, volume *executors.VolumeRequest) (*executors.Volume, error) {
+		return &executors.Volume{}, nil
 	}
 
 	m.MockVolumeDestroy = func(host string, volume string) error {
@@ -81,11 +91,61 @@ func NewMockExecutor() (*MockExecutor, error) {
 		return nil
 	}
 
+	m.MockVolumeReplaceBrick = func(host string, volume string, oldBrick *executors.BrickInfo, newBrick *executors.BrickInfo) error {
+		return nil
+	}
+
+	m.MockVolumeInfo = func(host string, volume string) (*executors.Volume, error) {
+		var bricks []executors.Brick
+		brick := executors.Brick{Name: host + ":/mockpath"}
+		bricks = append(bricks, brick)
+		brick = executors.Brick{Name: host + ":/mockpath"}
+		bricks = append(bricks, brick)
+		brick = executors.Brick{Name: host + ":/mockpath"}
+		bricks = append(bricks, brick)
+		Bricks := executors.Bricks{
+			BrickList: bricks,
+		}
+		vinfo := &executors.Volume{
+			Bricks: Bricks,
+		}
+		return vinfo, nil
+	}
+
+	m.MockHealInfo = func(host string, volume string) (*executors.HealInfo, error) {
+		return &executors.HealInfo{}, nil
+	}
+
+	m.MockBlockVolumeCreate = func(host string, blockVolume *executors.BlockVolumeRequest) (*executors.BlockVolumeInfo, error) {
+		var blockVolumeInfo executors.BlockVolumeInfo
+		blockVolumeInfo.BlockHosts = blockVolume.BlockHosts
+		blockVolumeInfo.GlusterNode = blockVolume.GlusterNode
+		blockVolumeInfo.GlusterVolumeName = blockVolume.GlusterVolumeName
+		blockVolumeInfo.Hacount = blockVolume.Hacount
+		blockVolumeInfo.Iqn = "fakeIQN"
+		if blockVolume.Auth {
+			blockVolumeInfo.Username = "heketi-user"
+			blockVolumeInfo.Password = "secret"
+		}
+		blockVolumeInfo.Name = blockVolume.Name
+		blockVolumeInfo.Size = blockVolume.Size
+
+		return &blockVolumeInfo, nil
+	}
+
+	m.MockBlockVolumeDestroy = func(host string, blockHostingVolumeName string, blockVolumeName string) error {
+		return nil
+	}
+
 	return m, nil
 }
 
 func (m *MockExecutor) SetLogLevel(level string) {
 
+}
+
+func (m *MockExecutor) GlusterdCheck(host string) error {
+	return m.MockGlusterdCheck(host)
 }
 
 func (m *MockExecutor) PeerProbe(exec_host, newnode string) error {
@@ -97,6 +157,10 @@ func (m *MockExecutor) PeerDetach(exec_host, newnode string) error {
 }
 
 func (m *MockExecutor) DeviceSetup(host, device, vgid string) (*executors.DeviceInfo, error) {
+	return m.MockDeviceSetup(host, device, vgid)
+}
+
+func (m *MockExecutor) GetDeviceInfo(host, device, vgid string) (*executors.DeviceInfo, error) {
 	return m.MockDeviceSetup(host, device, vgid)
 }
 
@@ -116,11 +180,11 @@ func (m *MockExecutor) BrickDestroyCheck(host string, brick *executors.BrickRequ
 	return m.MockBrickDestroyCheck(host, brick)
 }
 
-func (m *MockExecutor) VolumeCreate(host string, volume *executors.VolumeRequest) (*executors.VolumeInfo, error) {
+func (m *MockExecutor) VolumeCreate(host string, volume *executors.VolumeRequest) (*executors.Volume, error) {
 	return m.MockVolumeCreate(host, volume)
 }
 
-func (m *MockExecutor) VolumeExpand(host string, volume *executors.VolumeRequest) (*executors.VolumeInfo, error) {
+func (m *MockExecutor) VolumeExpand(host string, volume *executors.VolumeRequest) (*executors.Volume, error) {
 	return m.MockVolumeExpand(host, volume)
 }
 
@@ -130,4 +194,24 @@ func (m *MockExecutor) VolumeDestroy(host string, volume string) error {
 
 func (m *MockExecutor) VolumeDestroyCheck(host string, volume string) error {
 	return m.MockVolumeDestroyCheck(host, volume)
+}
+
+func (m *MockExecutor) VolumeReplaceBrick(host string, volume string, oldBrick *executors.BrickInfo, newBrick *executors.BrickInfo) error {
+	return m.MockVolumeReplaceBrick(host, volume, oldBrick, newBrick)
+}
+
+func (m *MockExecutor) VolumeInfo(host string, volume string) (*executors.Volume, error) {
+	return m.MockVolumeInfo(host, volume)
+}
+
+func (m *MockExecutor) HealInfo(host string, volume string) (*executors.HealInfo, error) {
+	return m.MockHealInfo(host, volume)
+}
+
+func (m *MockExecutor) BlockVolumeCreate(host string, blockVolume *executors.BlockVolumeRequest) (*executors.BlockVolumeInfo, error) {
+	return m.MockBlockVolumeCreate(host, blockVolume)
+}
+
+func (m *MockExecutor) BlockVolumeDestroy(host string, blockHostingVolumeName string, blockVolumeName string) error {
+	return m.MockBlockVolumeDestroy(host, blockHostingVolumeName, blockVolumeName)
 }

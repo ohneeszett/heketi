@@ -16,10 +16,10 @@ RUN mkdir $BUILD_HOME $GOPATH && \
     dnf -q -y install glide golang git && \
     dnf -q -y install make && \
     dnf -q -y clean all && \
-    mkdir -p $GOPATH/src/github.com/ohneeszett && \
-    cd $GOPATH/src/github.com/ohneeszett && \
+    mkdir -p $GOPATH/src/github.com/heketi && \
+    cd $GOPATH/src/github.com/heketi && \
     git clone -b $HEKETI_BRANCH https://github.com/ohneeszett/heketi.git && \
-    cd $GOPATH/src/github.com/ohneeszett/heketi && \
+    cd $GOPATH/src/github.com/heketi/heketi && \
     glide install -v && make && \
     cp heketi /usr/bin/heketi && \
     cp client/cli/go/heketi-cli /usr/bin/heketi-cli && \

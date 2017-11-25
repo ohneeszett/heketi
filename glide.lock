@@ -1,5 +1,5 @@
 hash: 59834cf573ea7a48f90686852f6c02428d2ffee8ecfcfeafac4ca2e52638f00a
-updated: 2017-05-22T14:00:49.364236742-04:00
+updated: 2017-11-25T11:29:34.222921+01:00
 imports:
 - name: github.com/auth0/go-jwt-middleware
   version: f3f7de3b9e394e3af3b88e1b9457f6f71d1ae0ac
@@ -8,13 +8,13 @@ imports:
   subpackages:
   - winterm
 - name: github.com/boltdb/bolt
-  version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
+  version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
   - spew
 - name: github.com/dgrijalva/jwt-go
-  version: d2709f9f1f31ebcda9651b03077758c1f3a0018c
+  version: dbeaa9332f19a944acb5736b4456cfcc02140e29
 - name: github.com/docker/distribution
   version: cd27f179f2c10c5d300e6d09025b538c475b0d51
   subpackages:
@@ -101,7 +101,7 @@ imports:
   subpackages:
   - codec
 - name: github.com/urfave/negroni
-  version: fde5e16d32adc7ad637e9cd9ad21d4ebc6192535
+  version: 5dbbc83f748fc3ad38585842b0aedab546d0ea1e
 - name: golang.org/x/crypto
   version: d172538b2cfce0c13cee31e647d0367aa8cd2486
   subpackages:
@@ -261,7 +261,6 @@ imports:
   - pkg/apis/storage/install
   - pkg/apis/storage/v1
   - pkg/apis/storage/v1beta1
-  - pkg/client/clientset_generated
   - pkg/client/clientset_generated/clientset
   - pkg/client/clientset_generated/clientset/fake
   - pkg/client/clientset_generated/clientset/scheme
